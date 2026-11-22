@@ -284,7 +284,6 @@ fn main() {
         window.set_undecorated_shadow(true);
     }
 
-    // System Tray Menu
     let tray_menu = Menu::new();
     let item_open = MenuItem::with_id("open", "Open Dashboard", true, None);
     let item_sep = PredefinedMenuItem::separator();
@@ -311,7 +310,6 @@ fn main() {
         .build()
         .expect("Failed to build tray icon");
 
-    // WebView2 with transparent backdrop and custom app:// protocol
     let protocol_state = Arc::clone(&state);
     let protocol_store_path = store_path.clone();
     let ipc_proxy = proxy.clone();
@@ -347,8 +345,6 @@ fn main() {
         .build(&window)
         .expect("Failed to create WebView");
 
-    // Start the WM_INPUT listener AFTER EventLoop/Window/WebView creation so tao's
-    // default raw-input registration does not overwrite our RIDEV_INPUTSINK target.
     let mut raw_input_guard = match raw_input::start_raw_input_listener(Arc::clone(&state)) {
         Ok(guard) => Some(guard),
         Err(err) => {
@@ -366,7 +362,6 @@ fn main() {
                 event: WindowEvent::CloseRequested,
                 ..
             } => {
-                // Never terminate on close; minimize to Windows System Tray instead.
                 if let Some(wv) = webview.as_ref() {
                     hide_dashboard_to_tray(&window, wv);
                 }

@@ -77,8 +77,6 @@ impl ThresholdConfig {
         self.spinout_threshold_px = self.spinout_threshold_px.clamp(300.0, 5000.0);
         self.active_pause_cutoff_ms = self.active_pause_cutoff_ms.clamp(20.0, 300.0);
 
-        // Enforce active_pause_cutoff_ms >= dropout_threshold_ms + 10.0 so dropout detection
-        // can never become mathematically unsatisfiable.
         if self.active_pause_cutoff_ms < self.dropout_threshold_ms + 10.0 {
             self.active_pause_cutoff_ms = (self.dropout_threshold_ms + 10.0).min(300.0);
         }
@@ -224,8 +222,6 @@ fn direction_cosine(dx1: i32, dy1: i32, dx2: i32, dy2: i32) -> f64 {
     direction_cosine_f64(dx1 as f64, dy1 as f64, dx2 as f64, dy2 as f64)
 }
 
-/// Real-time mouse sensor state machine running on Raw Input (WM_INPUT) deltas,
-/// isolated per hardware device handle (`hDevice`).
 #[derive(Debug)]
 pub struct SensorAnalyzer {
     devices: HashMap<usize, DeviceState>,
@@ -279,8 +275,6 @@ impl SensorAnalyzer {
         now_epoch_ms: i64,
         config: &ThresholdConfig,
     ) -> Vec<SkipEvent> {
-        // Button-only or wheel-only WM_INPUT reports have dx == 0 && dy == 0;
-        // ignore them so they don't skew movement timing intervals.
         if dx == 0 && dy == 0 {
             return Vec::new();
         }
@@ -337,8 +331,6 @@ impl SensorAnalyzer {
                 || (dev.ema_velocity_cpms >= 4.5
                     && delta_px < dev.ema_velocity_cpms * nominal_dt_ms * 0.85);
 
-            // Update rolling polling rate estimate only from active non-coalesced, non-braking
-            // packets and average the fastest 25% so coalescing/turnarounds never pull 1000 Hz down.
             if dt_ms > 0.08
                 && dt_ms <= fast_cadence_max_dt.max(9.0)
                 && delta_px >= 3.0
@@ -362,9 +354,6 @@ impl SensorAnalyzer {
                 }
             }
 
-            // Emit Polling Dropout only if directly preceded by >= 4 consecutive fast active packets
-            // in a consistent trajectory (not a turnaround reversal, braking, or OS-coalesced burst),
-            // and the current movement is not a micro-jitter (< 4.0 counts).
             if config.monitoring_enabled
                 && dev.active_streak >= 4
                 && delta_px >= 4.0
@@ -390,8 +379,6 @@ impl SensorAnalyzer {
                 });
             }
 
-            // Keep streak alive across OS-coalesced packets; reset on turnaround braking,
-            // non-fast cadence gaps, or tiny moves; restart streak at 1 on direction reversals.
             if dt_ms > fast_cadence_max_dt || delta_px < 3.0 {
                 if is_os_coalesced
                     && !is_turnaround_braking
@@ -425,8 +412,6 @@ impl SensorAnalyzer {
             } else if is_turnaround_braking
                 || (dev.last_delta_px > 0.0 && delta_px < dev.last_delta_px * 0.75)
             {
-                // Hand is decelerating down a braking ramp at fast cadence: clear active_streak
-                // but keep peak_streak_delta_px so the remaining braking packets cannot build a new streak.
                 dev.active_streak = 0;
                 dev.peak_streak_delta_px = dev.peak_streak_delta_px.max(delta_px);
             } else if delta_px >= 4.0 {
@@ -453,9 +438,6 @@ impl SensorAnalyzer {
             dev.active_streak = 0;
         }
 
-        // Only check for spinouts during continuous active movement (dt <= active_pause_cutoff_ms),
-        // dividing by the full measured elapsed interval (never capping below measured_dt_ms) so
-        // accumulated deltas after an OS hitch or hand pause do not trigger false spinouts.
         if config.monitoring_enabled
             && measured_dt_ms > 0.0
             && measured_dt_ms <= config.active_pause_cutoff_ms
@@ -741,8 +723,6 @@ pub fn build_dashboard_response(
 
     let timeline = build_timeline_buckets(&filtered, range, now_epoch_ms);
 
-    // Filter by event kind BEFORE truncating to MAX_UI_EVENTS so selecting a specific
-    // event type tab always reveals up to 250 matching events even when other events dominate.
     let events: Vec<SkipEvent> = filtered
         .iter()
         .rev()
@@ -981,7 +961,7 @@ mod tests {
     #[test]
     fn intentional_pause_over_cutoff_does_not_trigger_dropout_or_spinout() {
         let mut analyzer = SensorAnalyzer::default();
-        let config = ThresholdConfig::default(); // cutoff = 60ms, spinout = 1500 c/ms
+        let config = ThresholdConfig::default();
         let t0 = Instant::now();
 
         analyzer.process_raw_delta(4, 2, t0, 1_000_000, &config);
@@ -995,8 +975,6 @@ mod tests {
             );
         }
 
-        // First packet after a 120ms pause (> 60ms cutoff) with accumulated 2000-count delta
-        // must NOT trigger either PollingDropout or SensorSpinout.
         let skips = analyzer.process_raw_delta(
             2000,
             0,
@@ -1042,10 +1020,9 @@ mod tests {
     #[test]
     fn devices_with_different_handles_are_isolated() {
         let mut analyzer = SensorAnalyzer::default();
-        let config = ThresholdConfig::default(); // 6ms dropout
+        let config = ThresholdConfig::default();
         let t0 = Instant::now();
 
-        // Build 4-packet streak on device 101 at 1000 Hz
         for i in 0..=4u64 {
             analyzer.process_raw_delta_for_device(
                 101,
@@ -1057,7 +1034,6 @@ mod tests {
             );
         }
 
-        // Interleave a packet from second device 202 at t + 4.5ms (and 25ms earlier -> no dropout)
         let d2 = analyzer.process_raw_delta_for_device(
             202,
             4,
@@ -1068,7 +1044,6 @@ mod tests {
         );
         assert!(d2.is_empty());
 
-        // Device 101 receives its next packet at t + 5ms (1ms after its own previous packet, NOT 0.5ms)
         let d1 = analyzer.process_raw_delta_for_device(
             101,
             5,
@@ -1120,7 +1095,6 @@ mod tests {
     #[test]
     fn timeline_all_range_never_drops_oldest_event_on_non_divisible_span() {
         let now_ms = 1_760_000_000_000i64;
-        // span = 5 hours + 7_123 ms (not divisible by 16)
         let oldest_ts = now_ms - (5 * 60 * 60_000 + 7_123);
         let events = vec![
             SkipEvent {
@@ -1169,7 +1143,6 @@ mod tests {
     fn kind_filter_applies_before_250_event_truncation() {
         let now_ms = 1_760_000_000_000i64;
         let mut events = Vec::new();
-        // 3 older spinouts followed by 260 newer dropouts
         for i in 0..3u64 {
             events.push(SkipEvent {
                 id: i + 1,
@@ -1233,7 +1206,6 @@ mod tests {
         assert!((950..=1050).contains(&analyzer.estimated_hz));
         let prev_hz = analyzer.estimated_hz;
 
-        // Secondary device (e.g. trackpad) sends a single 1-pixel micro packet
         analyzer.process_raw_delta_for_device(
             202,
             0,
@@ -1262,7 +1234,7 @@ mod tests {
             },
             SkipEvent {
                 id: 2,
-                timestamp_ms: now_ms - 3_600_000, // unsorted earlier timestamp
+                timestamp_ms: now_ms - 3_600_000,
                 kind: SkipKind::PollingDropout,
                 dt_ms: 11.0,
                 dx: 5,
@@ -1273,7 +1245,7 @@ mod tests {
             },
             SkipEvent {
                 id: 3,
-                timestamp_ms: now_ms + 600_000, // far future timestamp (e.g. clock rollback)
+                timestamp_ms: now_ms + 600_000,
                 kind: SkipKind::PollingDropout,
                 dt_ms: 12.0,
                 dx: 5,
@@ -1300,11 +1272,10 @@ mod tests {
     #[test]
     fn fast_back_and_forth_swipes_with_turnarounds_and_coalescing_do_not_trigger_dropouts() {
         let mut analyzer = SensorAnalyzer::default();
-        let config = ThresholdConfig::default(); // 6ms dropout, 60ms cutoff
+        let config = ThresholdConfig::default();
         let t0 = Instant::now();
         let mut t_us = 0u64;
 
-        // 1. Rapid rightward swipe packets (dx = +38, dy = +5 every 1 ms)
         for _ in 0..12 {
             let skips = analyzer.process_raw_delta(
                 38,
@@ -1317,8 +1288,7 @@ mod tests {
             t_us += 1_000;
         }
 
-        // 2. Mid-swipe OS-coalesced packet (dt = 10.8 ms, dx = +407, dy = +57)
-        t_us += 9_800; // total dt since last packet = 10.8 ms
+        t_us += 9_800;
         let coalesced_skips = analyzer.process_raw_delta(
             407,
             57,
@@ -1331,7 +1301,6 @@ mod tests {
             "OS-coalesced packet triggered false skip: {coalesced_skips:?}"
         );
 
-        // Continue rightward swipe briefly
         for _ in 0..5 {
             t_us += 1_000;
             let skips = analyzer.process_raw_delta(
@@ -1344,7 +1313,6 @@ mod tests {
             assert!(skips.is_empty());
         }
 
-        // 3. Turnaround pause (dt = 15.0 ms) where direction reverses to leftward (dx = -177, dy = +28)
         t_us += 15_000;
         let reversal1_skips = analyzer.process_raw_delta(
             -177,
@@ -1358,7 +1326,6 @@ mod tests {
             "turnaround reversal 1 triggered false skip: {reversal1_skips:?}"
         );
 
-        // Followed by leftward swipe packets (dx = -35, dy = +4 every 1 ms)
         for _ in 0..10 {
             t_us += 1_000;
             let skips = analyzer.process_raw_delta(
@@ -1371,7 +1338,6 @@ mod tests {
             assert!(skips.is_empty());
         }
 
-        // 4. Another turnaround pause (dt = 18.0 ms) reversing back to rightward (dx = +45, dy = -6)
         t_us += 18_000;
         let reversal2_skips = analyzer.process_raw_delta(
             45,
@@ -1385,7 +1351,6 @@ mod tests {
             "turnaround reversal 2 triggered false skip: {reversal2_skips:?}"
         );
 
-        // 5. Curved turnaround + coalesced packets observed in video
         for _ in 0..8 {
             t_us += 1_000;
             let skips = analyzer.process_raw_delta(
@@ -1461,7 +1426,6 @@ mod tests {
             "coalesced burst 2 triggered false skip: {burst2_skips:?}"
         );
 
-        // 6. Run 2 braking / turnaround sequence (delta_px = 3..15 counts in 8..16ms)
         let run2_sequence = [
             (9_070u64, 4i32, 0i32),
             (14_110, -11, 2),
@@ -1495,7 +1459,6 @@ mod tests {
             );
         }
 
-        // 7. Boundary crack case: 5.38 <= delta_px < 7.0 at dt = 7.027 ms (dx = 6, dy = -1)
         for _ in 0..6 {
             t_us += 1_000;
             assert!(analyzer
@@ -1521,7 +1484,6 @@ mod tests {
             "7.027ms boundary packet triggered false skip: {boundary_skips:?}"
         );
 
-        // 8. Decelerating braking ramp (20 -> 14 -> 7 -> 6 -> 5 -> 4) followed by 35ms hand pause and dx=4, dy=1
         for d in [20i32, 20, 20, 20, 20, 14, 7, 6, 5, 4] {
             t_us += 1_000;
             assert!(analyzer

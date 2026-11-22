@@ -32,7 +32,6 @@ fn dir_is_writable(dir: &Path) -> bool {
 pub fn default_store_path() -> PathBuf {
     if let Ok(exe_path) = std::env::current_exe() {
         if let Some(exe_dir) = exe_path.parent() {
-            // When launched via `cargo run` or `target/release/mouseskip.exe` inside the project
             if let Some(target_dir) = exe_dir.parent() {
                 if let Some(project_root) = target_dir.parent() {
                     if project_root.join("Cargo.toml").is_file() {
@@ -41,7 +40,6 @@ pub fn default_store_path() -> PathBuf {
                 }
             }
 
-            // Portable installation next to the binary if writable
             let portable_dir = exe_dir.join("data");
             if dir_is_writable(&portable_dir) {
                 return portable_dir.join("mouseskip_store.json");

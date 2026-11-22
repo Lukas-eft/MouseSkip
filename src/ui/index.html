@@ -39,7 +39,6 @@
       overflow: hidden;
     }
 
-    /* Resize handles for frameless window */
     .resize-handle {
       position: fixed;
       z-index: 9999;
@@ -53,7 +52,6 @@
     .resize-sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: sw-resize; }
     .resize-se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: se-resize; }
 
-    /* Outer Liquid Glass Shell (Mica backdrop) */
     .app-shell {
       position: relative;
       width: 100%;
@@ -70,7 +68,6 @@
       overflow: hidden;
     }
 
-    /* Custom Frameless Titlebar */
     .titlebar {
       height: 48px;
       flex-shrink: 0;
@@ -102,7 +99,6 @@
       pointer-events: none;
     }
 
-    /* Redesigned shadcn multi-segment Raw Input status pill */
     .input-status-pill {
       display: inline-flex;
       align-items: center;
@@ -228,7 +224,6 @@
       color: #ffffff;
     }
 
-    /* Main Scrollable Content */
     .workspace {
       flex: 1;
       overflow-y: auto;
@@ -256,7 +251,6 @@
       background: rgba(255, 255, 255, 0.22);
     }
 
-    /* Toolbar: Time Filter + Actions */
     .toolbar {
       display: flex;
       align-items: center;
@@ -335,7 +329,6 @@
       border-color: rgba(255, 255, 255, 0.2);
     }
 
-    /* Glass Card */
     .glass-card {
       background: var(--bg-card);
       border: 1px solid var(--border-glass);
@@ -345,7 +338,6 @@
       padding: 15px 16px;
     }
 
-    /* 4 KPI Cards Grid */
     .kpi-grid {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -413,7 +405,6 @@
       transition: width 0.25s ease;
     }
 
-    /* Main Content Split: Timeline + Thresholds */
     .mid-grid {
       display: grid;
       grid-template-columns: 1.45fr 1fr;
@@ -468,7 +459,6 @@
       border-radius: 2px;
     }
 
-    /* Bar Chart */
     .chart-wrap {
       position: relative;
       height: 196px;
@@ -582,7 +572,6 @@
       transition: opacity 0.12s ease;
     }
 
-    /* Thresholds & Sensitivity Sliders */
     .preset-row {
       display: flex;
       flex-wrap: wrap;
@@ -675,7 +664,6 @@
       color: var(--text-muted);
     }
 
-    /* Event Log Card */
     .events-card {
       display: flex;
       flex-direction: column;
@@ -750,7 +738,6 @@
   </style>
 </head>
 <body>
-  <!-- Frameless resize edges -->
   <div class="resize-handle resize-n" data-resize="North"></div>
   <div class="resize-handle resize-s" data-resize="South"></div>
   <div class="resize-handle resize-w" data-resize="West"></div>
@@ -761,7 +748,6 @@
   <div class="resize-handle resize-se" data-resize="SouthEast"></div>
 
   <div class="app-shell">
-    <!-- Custom Titlebar -->
     <header class="titlebar">
       <div class="titlebar-left" data-drag-region>
         <div class="brand">
@@ -800,9 +786,7 @@
       </div>
     </header>
 
-    <!-- Dashboard Workspace -->
     <main class="workspace">
-      <!-- Filter & Action Bar -->
       <div class="toolbar">
         <div class="segmented" role="tablist" aria-label="Time Range">
           <button class="seg-btn active" data-range="15m">Last 15m</button>
@@ -817,7 +801,6 @@
         </div>
       </div>
 
-      <!-- 4 KPI Cards -->
       <section class="kpi-grid">
         <div class="glass-card">
           <div class="kpi-label">
@@ -872,9 +855,7 @@
         </div>
       </section>
 
-      <!-- Middle Grid: Timeline Bar Chart + Sensitivity Sliders -->
       <section class="mid-grid">
-        <!-- Timeline Card -->
         <div class="glass-card">
           <div class="card-header">
             <div>
@@ -905,7 +886,6 @@
           </div>
         </div>
 
-        <!-- Threshold Sliders Card -->
         <div class="glass-card">
           <div class="card-header" style="margin-bottom: 10px">
             <div>
@@ -952,7 +932,6 @@
         </div>
       </section>
 
-      <!-- Event Log Card -->
       <section class="glass-card events-card">
         <div class="events-header">
           <div>
@@ -993,7 +972,6 @@
       }
     }
 
-    // Window drag & resize wiring
     document.querySelectorAll("[data-drag-region]").forEach((el) => {
       el.addEventListener("mousedown", (e) => {
         if (e.button !== 0) return;
@@ -1017,7 +995,6 @@
     document.getElementById("btnMax").addEventListener("click", () => postIpc("toggle_maximize"));
     document.getElementById("btnHideTray").addEventListener("click", () => postIpc("hide_to_tray"));
 
-    // Time range filter tabs
     document.querySelectorAll("[data-range]").forEach((btn) => {
       btn.addEventListener("click", () => {
         document.querySelectorAll("[data-range]").forEach((b) => b.classList.remove("active"));
@@ -1027,7 +1004,6 @@
       });
     });
 
-    // Event type filter tabs
     document.querySelectorAll("[data-type]").forEach((btn) => {
       btn.addEventListener("click", () => {
         document.querySelectorAll("[data-type]").forEach((b) => b.classList.remove("active"));
@@ -1037,7 +1013,6 @@
       });
     });
 
-    // Action buttons
     document.getElementById("btnToggleMonitor").addEventListener("click", async () => {
       state.monitoringEnabled = !state.monitoringEnabled;
       await saveSettings({ monitoring_enabled: state.monitoringEnabled });
@@ -1049,7 +1024,6 @@
       fetchDashboard();
     });
 
-    // Sliders & presets
     const sliderDropout = document.getElementById("sliderDropout");
     const sliderSpinout = document.getElementById("sliderSpinout");
     const sliderCutoff = document.getElementById("sliderCutoff");
@@ -1059,7 +1033,6 @@
       const s = parseFloat(sliderSpinout.value);
       let c = parseFloat(sliderCutoff.value);
 
-      // Keep active_pause_cutoff_ms >= dropout_threshold_ms + 10 in sync with backend invariant
       if (c < d + 10) {
         if (source === sliderCutoff) {
           d = Math.max(1.5, c - 10);
@@ -1144,7 +1117,6 @@
       state.lastData = data;
       state.monitoringEnabled = !!data.config.monitoring_enabled;
 
-      // Top redesigned input status pill
       const liveBadge = document.getElementById("liveBadge");
       const liveText = document.getElementById("liveStatusText");
       if (!data.config.monitoring_enabled) {
@@ -1162,12 +1134,10 @@
       document.getElementById("liveHzPill").textContent = hzText;
       document.getElementById("liveDeltaPill").textContent = `\u0394 ${data.live.last_dx}, ${data.live.last_dy}`;
 
-      // Monitor toggle button
       const toggleBtn = document.getElementById("btnToggleMonitor");
       toggleBtn.textContent = data.config.monitoring_enabled ? "Monitoring: Active" : "Monitoring: Paused";
       toggleBtn.classList.toggle("active-toggle", data.config.monitoring_enabled);
 
-      // KPIs
       document.getElementById("kpiRangeBadge").textContent = data.range;
       document.getElementById("kpiTotalSkips").textContent = data.total_skips.toLocaleString("en-US");
       document.getElementById("kpiRatePerHour").textContent = `${data.skips_per_hour.toFixed(1)} / hr`;
@@ -1191,7 +1161,6 @@
         data.live.avg_dt_ms > 0 ? `Avg ${data.live.avg_dt_ms.toFixed(2)} ms` : "Avg -- ms";
       document.getElementById("kpiPackets").textContent = `${data.live.total_packets.toLocaleString("en-US")} packets`;
 
-      // Sync sliders if not actively dragging
       if (!state.draggingSlider) {
         sliderDropout.value = data.config.dropout_threshold_ms;
         sliderSpinout.value = data.config.spinout_threshold_px;
@@ -1331,7 +1300,6 @@
       }
     }
 
-    // Lifecycle hooks invoked from Rust when hiding to or restoring from the Windows System Tray
     window.__onWindowHidden = () => {
       state.hiddenToTray = true;
       stopPolling();

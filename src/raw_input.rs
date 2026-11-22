@@ -90,8 +90,6 @@ fn to_wide_null(s: &str) -> Vec<u16> {
 
 #[cfg(windows)]
 fn register_mouse_sink(hwnd: HWND) -> Result<(), u32> {
-    // Register HID Generic Desktop Mouse (0x01 / 0x02) with RIDEV_INPUTSINK
-    // so hardware WM_INPUT packets arrive even while the window is hidden or a fullscreen game is focused.
     let rid = RAWINPUTDEVICE {
         usUsagePage: 0x01,
         usUsage: 0x02,
@@ -170,8 +168,6 @@ unsafe extern "system" fn raw_input_wnd_proc(
         WM_DESTROY => {
             unsafe {
                 KillTimer(hwnd, TIMER_REASSERT_SINK_ID);
-                // Clear GWLP_USERDATA and reclaim the Arc while hwnd is still valid,
-                // avoiding any handle use-after-destroy once DestroyWindow finishes.
                 let ptr = SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0) as *const SharedAppState;
                 if !ptr.is_null() {
                     drop(Arc::from_raw(ptr));
@@ -186,7 +182,6 @@ unsafe extern "system" fn raw_input_wnd_proc(
 
 #[cfg(windows)]
 fn handle_wm_input(lparam: LPARAM, state: &SharedAppState) {
-    // 128 bytes aligned on 8-byte boundary (u64) covers standard RAWINPUT mouse packets with zero heap allocation.
     let mut buf = [0u64; 16];
     let mut size = std::mem::size_of_val(&buf) as u32;
 
@@ -210,7 +205,6 @@ fn handle_wm_input(lparam: LPARAM, state: &SharedAppState) {
     }
 
     let mouse = unsafe { raw.data.mouse };
-    // Filter out absolute coordinate sources (touchscreens, pen tablets, some VM/RDP cursors)
     if (mouse.usFlags & MOUSE_MOVE_ABSOLUTE) != 0 {
         return;
     }
