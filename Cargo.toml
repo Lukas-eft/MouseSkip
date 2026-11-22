@@ -1,0 +1,32 @@
+[package]
+name = "mouseskip"
+version = "0.1.0"
+edition = "2021"
+description = "High-performance Windows Raw Input (WM_INPUT) mouse skip & polling dropout analyzer"
+
+[dependencies]
+tao = "0.37.3"
+wry = "0.57.3"
+window-vibrancy = "0.8.1"
+tray-icon = "0.26.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+raw-window-handle = "0.6"
+
+[target.'cfg(windows)'.dependencies.windows-sys]
+version = "0.61.2"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Threading",
+    "Win32_UI_Input",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"

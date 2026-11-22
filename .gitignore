@@ -1,0 +1,12 @@
+# Rust / Cargo build artifacts (including WebView2 runtime cache under target/)
+/target/
+
+# Local runtime telemetry store & backup/temp files
+/data/
+
+# IDE & OS files
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

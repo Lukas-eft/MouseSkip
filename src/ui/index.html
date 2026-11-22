@@ -1,0 +1,1356 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' app: http://app.localhost https://app.localhost; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' app: http://app.localhost https://app.localhost; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none';" />
+  <title>MouseSkip — Raw Input Monitor</title>
+  <style>
+    :root {
+      --bg-shell: rgba(9, 9, 11, 0.42);
+      --bg-card: linear-gradient(180deg, rgba(24, 24, 27, 0.58) 0%, rgba(12, 12, 15, 0.48) 100%);
+      --border-glass: rgba(255, 255, 255, 0.09);
+      --border-strong: rgba(255, 255, 255, 0.16);
+      --specular: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      --text-primary: #f4f4f5;
+      --text-secondary: #a1a1aa;
+      --text-muted: #71717a;
+      --accent-emerald: #34d399;
+      --radius-shell: 12px;
+      --radius-card: 12px;
+      --font-sans: "Roboto", "Segoe UI", system-ui, -apple-system, sans-serif;
+      --font-mono: "Roboto Mono", "Cascadia Mono", "Consolas", monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      background: transparent !important;
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      overflow: hidden;
+    }
+
+    /* Resize handles for frameless window */
+    .resize-handle {
+      position: fixed;
+      z-index: 9999;
+    }
+    .resize-n  { top: 0; left: 8px; right: 8px; height: 5px; cursor: n-resize; }
+    .resize-s  { bottom: 0; left: 8px; right: 8px; height: 5px; cursor: s-resize; }
+    .resize-w  { top: 8px; bottom: 8px; left: 0; width: 5px; cursor: w-resize; }
+    .resize-e  { top: 8px; bottom: 8px; right: 0; width: 5px; cursor: e-resize; }
+    .resize-nw { top: 0; left: 0; width: 10px; height: 10px; cursor: nw-resize; }
+    .resize-ne { top: 0; right: 0; width: 10px; height: 10px; cursor: ne-resize; }
+    .resize-sw { bottom: 0; left: 0; width: 10px; height: 10px; cursor: sw-resize; }
+    .resize-se { bottom: 0; right: 0; width: 10px; height: 10px; cursor: se-resize; }
+
+    /* Outer Liquid Glass Shell (Mica backdrop) */
+    .app-shell {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      background:
+        radial-gradient(1100px 460px at 12% -15%, rgba(255, 255, 255, 0.045), transparent 55%),
+        radial-gradient(900px 420px at 88% 110%, rgba(161, 161, 170, 0.04), transparent 60%),
+        var(--bg-shell);
+      border: 1px solid var(--border-glass);
+      border-radius: var(--radius-shell);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+      overflow: hidden;
+    }
+
+    /* Custom Frameless Titlebar */
+    .titlebar {
+      height: 48px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 10px 0 18px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+      background: rgba(9, 9, 11, 0.28);
+      backdrop-filter: blur(18px);
+    }
+
+    .titlebar-left {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex: 1;
+      height: 100%;
+      min-width: 0;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+      pointer-events: none;
+    }
+
+    /* Redesigned shadcn multi-segment Raw Input status pill */
+    .input-status-pill {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 3px;
+      border-radius: 999px;
+      background: rgba(15, 15, 18, 0.72);
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06), 0 2px 8px rgba(0, 0, 0, 0.25);
+      pointer-events: none;
+      white-space: nowrap;
+      gap: 2px;
+    }
+
+    .pill-status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      height: 20px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: rgba(52, 211, 153, 0.11);
+      border: 1px solid rgba(52, 211, 153, 0.22);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      color: #6ee7b7;
+      transition: all 0.2s ease;
+    }
+
+    .pill-status-badge.is-paused {
+      background: rgba(113, 113, 122, 0.16);
+      border-color: rgba(161, 161, 170, 0.2);
+      color: #a1a1aa;
+    }
+
+    .pulse-ring {
+      position: relative;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent-emerald);
+      box-shadow: 0 0 8px rgba(52, 211, 153, 0.8);
+    }
+
+    .pulse-ring::after {
+      content: "";
+      position: absolute;
+      inset: -3px;
+      border-radius: 50%;
+      border: 1px solid rgba(52, 211, 153, 0.55);
+      animation: pulse-wave 2s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    }
+
+    .pill-status-badge.is-paused .pulse-ring {
+      background: #71717a;
+      box-shadow: none;
+    }
+
+    .pill-status-badge.is-paused .pulse-ring::after {
+      display: none;
+    }
+
+    @keyframes pulse-wave {
+      0% { transform: scale(0.8); opacity: 0.9; }
+      100% { transform: scale(2.0); opacity: 0; }
+    }
+
+    .pill-divider {
+      width: 1px;
+      height: 12px;
+      background: rgba(255, 255, 255, 0.1);
+      margin: 0 3px;
+    }
+
+    .pill-segment {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 7px;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 500;
+      color: #d4d4d8;
+      letter-spacing: -0.01em;
+    }
+
+    .pill-segment-muted {
+      color: var(--text-secondary);
+      padding-right: 9px;
+    }
+
+    .mono {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .titlebar-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .win-btn {
+      width: 30px;
+      height: 28px;
+      border-radius: 7px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+    .win-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-primary);
+    }
+    .win-btn.tray-close:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.14);
+      color: #ffffff;
+    }
+
+    /* Main Scrollable Content */
+    .workspace {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 18px 18px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .workspace::-webkit-scrollbar,
+    .event-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .workspace::-webkit-scrollbar-track,
+    .event-list::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    .workspace::-webkit-scrollbar-thumb,
+    .event-list::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 999px;
+    }
+    .workspace::-webkit-scrollbar-thumb:hover,
+    .event-list::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.22);
+    }
+
+    /* Toolbar: Time Filter + Actions */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .segmented {
+      display: inline-flex;
+      padding: 3px;
+      border-radius: 10px;
+      background: rgba(24, 24, 27, 0.65);
+      border: 1px solid var(--border-glass);
+      box-shadow: var(--specular);
+      gap: 2px;
+    }
+
+    .seg-btn {
+      padding: 6px 12px;
+      border-radius: 7px;
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .seg-btn:hover {
+      color: var(--text-primary);
+    }
+    .seg-btn.active {
+      background: rgba(255, 255, 255, 0.11);
+      border-color: rgba(255, 255, 255, 0.12);
+      color: var(--text-primary);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    }
+
+    .action-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn-glass {
+      height: 32px;
+      padding: 0 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-glass);
+      background: rgba(24, 24, 27, 0.58);
+      box-shadow: var(--specular);
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.15s ease;
+    }
+    .btn-glass:hover {
+      background: rgba(39, 39, 42, 0.72);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+    .btn-glass:active {
+      transform: scale(0.98);
+    }
+    .btn-glass.active-toggle {
+      background: rgba(244, 244, 245, 0.12);
+      color: var(--text-primary);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Glass Card */
+    .glass-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-glass);
+      border-radius: var(--radius-card);
+      box-shadow: var(--specular), 0 8px 28px rgba(0, 0, 0, 0.24);
+      backdrop-filter: blur(22px) saturate(140%);
+      padding: 15px 16px;
+    }
+
+    /* 4 KPI Cards Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    @media (max-width: 960px) {
+      .kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    .kpi-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 8px;
+    }
+
+    .kpi-badge {
+      font-size: 10.5px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: var(--text-secondary);
+    }
+
+    .kpi-value {
+      font-size: 26px;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      line-height: 1.1;
+      color: var(--text-primary);
+      margin-bottom: 6px;
+    }
+
+    .kpi-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .mini-ratio-bar {
+      width: 100%;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.07);
+      overflow: hidden;
+      display: flex;
+      margin-top: 8px;
+    }
+    .mini-ratio-dropout {
+      background: #e4e4e7;
+      transition: width 0.25s ease;
+    }
+    .mini-ratio-spinout {
+      background: #71717a;
+      transition: width 0.25s ease;
+    }
+
+    /* Main Content Split: Timeline + Thresholds */
+    .mid-grid {
+      display: grid;
+      grid-template-columns: 1.45fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 980px) {
+      .mid-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .card-title {
+      font-size: 13.5px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    .card-desc {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .legend {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .legend-swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 2px;
+    }
+
+    /* Bar Chart */
+    .chart-wrap {
+      position: relative;
+      height: 196px;
+      display: flex;
+      flex-direction: column;
+      justify-content: flex-end;
+      padding-top: 18px;
+    }
+
+    .chart-gridlines {
+      position: absolute;
+      inset: 18px 0 24px 0;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      pointer-events: none;
+    }
+
+    .chart-gridline {
+      border-top: 1px dashed rgba(255, 255, 255, 0.065);
+      width: 100%;
+      position: relative;
+    }
+    .chart-gridline span {
+      position: absolute;
+      right: 2px;
+      top: -14px;
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    .chart-bars {
+      position: relative;
+      z-index: 2;
+      height: 154px;
+      display: flex;
+      align-items: flex-end;
+      gap: 6px;
+      padding: 0 2px;
+    }
+
+    .bar-col {
+      flex: 1;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: flex-end;
+      cursor: pointer;
+      position: relative;
+    }
+
+    .bar-track {
+      width: 100%;
+      max-width: 28px;
+      height: 100%;
+      display: flex;
+      flex-direction: column-reverse;
+      align-items: stretch;
+      border-radius: 6px 6px 3px 3px;
+      background: rgba(255, 255, 255, 0.025);
+      overflow: hidden;
+      transition: background 0.15s ease;
+    }
+    .bar-col:hover .bar-track {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .bar-seg-dropout {
+      background: linear-gradient(180deg, rgba(244, 244, 245, 0.92), rgba(212, 212, 216, 0.72));
+      transition: height 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .bar-seg-spinout {
+      background: linear-gradient(180deg, rgba(113, 113, 122, 0.95), rgba(82, 82, 91, 0.75));
+      transition: height 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .bar-labels {
+      height: 24px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 2px 0 2px;
+    }
+    .bar-label {
+      flex: 1;
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .chart-tooltip {
+      position: absolute;
+      z-index: 30;
+      pointer-events: none;
+      opacity: 0;
+      transform: translate(-50%, -8px);
+      background: rgba(9, 9, 11, 0.92);
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      border-radius: 8px;
+      padding: 7px 10px;
+      font-size: 11px;
+      color: var(--text-primary);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(16px);
+      white-space: nowrap;
+      transition: opacity 0.12s ease;
+    }
+
+    /* Thresholds & Sensitivity Sliders */
+    .preset-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .preset-chip {
+      padding: 4px 9px;
+      border-radius: 7px;
+      border: 1px solid rgba(255, 255, 255, 0.09);
+      background: rgba(39, 39, 42, 0.42);
+      color: var(--text-secondary);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.14s ease;
+    }
+    .preset-chip:hover {
+      background: rgba(63, 63, 70, 0.55);
+      color: var(--text-primary);
+    }
+    .preset-chip.active {
+      background: rgba(244, 244, 245, 0.14);
+      border-color: rgba(244, 244, 245, 0.28);
+      color: var(--text-primary);
+    }
+
+    .slider-group {
+      display: flex;
+      flex-direction: column;
+      gap: 13px;
+    }
+
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+
+    .slider-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+    }
+
+    .slider-label {
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .slider-val {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text-primary);
+      background: rgba(255, 255, 255, 0.07);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 1px 7px;
+      border-radius: 6px;
+    }
+
+    input[type="range"] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 6px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.11);
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 50%;
+      background: #f4f4f5;
+      border: 2px solid #18181b;
+      box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+      cursor: pointer;
+      transition: transform 0.12s ease;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      transform: scale(1.12);
+    }
+
+    .slider-hint {
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    /* Event Log Card */
+    .events-card {
+      display: flex;
+      flex-direction: column;
+      min-height: 220px;
+    }
+
+    .events-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+
+    .event-list {
+      max-height: 240px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding-right: 4px;
+    }
+
+    .event-row {
+      display: grid;
+      grid-template-columns: 112px 142px 1fr 130px 88px;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: 9px;
+      background: rgba(24, 24, 27, 0.48);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 12px;
+      transition: border-color 0.14s ease, background 0.14s ease;
+    }
+    .event-row:hover {
+      background: rgba(39, 39, 42, 0.55);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+
+    .type-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      width: fit-content;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 500;
+    }
+    .type-dropout {
+      background: rgba(244, 244, 245, 0.12);
+      color: #f4f4f5;
+      border: 1px solid rgba(244, 244, 245, 0.18);
+    }
+    .type-spinout {
+      background: rgba(113, 113, 122, 0.22);
+      color: #d4d4d8;
+      border: 1px solid rgba(161, 161, 170, 0.22);
+    }
+
+    .empty-state {
+      padding: 32px 16px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12.5px;
+      border: 1px dashed rgba(255, 255, 255, 0.08);
+      border-radius: 10px;
+      background: rgba(9, 9, 11, 0.22);
+    }
+  </style>
+</head>
+<body>
+  <!-- Frameless resize edges -->
+  <div class="resize-handle resize-n" data-resize="North"></div>
+  <div class="resize-handle resize-s" data-resize="South"></div>
+  <div class="resize-handle resize-w" data-resize="West"></div>
+  <div class="resize-handle resize-e" data-resize="East"></div>
+  <div class="resize-handle resize-nw" data-resize="NorthWest"></div>
+  <div class="resize-handle resize-ne" data-resize="NorthEast"></div>
+  <div class="resize-handle resize-sw" data-resize="SouthWest"></div>
+  <div class="resize-handle resize-se" data-resize="SouthEast"></div>
+
+  <div class="app-shell">
+    <!-- Custom Titlebar -->
+    <header class="titlebar">
+      <div class="titlebar-left" data-drag-region>
+        <div class="brand">
+          <span>MouseSkip</span>
+        </div>
+
+        <div class="input-status-pill">
+          <span id="liveBadge" class="pill-status-badge">
+            <span class="pulse-ring"></span>
+            <span id="liveStatusText">RAW INPUT</span>
+          </span>
+          <span class="pill-divider"></span>
+          <span id="liveHzPill" class="pill-segment">-- Hz</span>
+          <span class="pill-divider"></span>
+          <span id="liveDeltaPill" class="pill-segment pill-segment-muted">&Delta; 0, 0</span>
+        </div>
+      </div>
+
+      <div class="titlebar-actions">
+        <button id="btnMin" class="win-btn" title="Minimize">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+        </button>
+        <button id="btnMax" class="win-btn" title="Maximize / Restore">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+          </svg>
+        </button>
+        <button id="btnHideTray" class="win-btn tray-close" title="Minimize to System Tray (keeps running in background)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Dashboard Workspace -->
+    <main class="workspace">
+      <!-- Filter & Action Bar -->
+      <div class="toolbar">
+        <div class="segmented" role="tablist" aria-label="Time Range">
+          <button class="seg-btn active" data-range="15m">Last 15m</button>
+          <button class="seg-btn" data-range="1h">Last 1h</button>
+          <button class="seg-btn" data-range="24h">Last 24h</button>
+          <button class="seg-btn" data-range="all">All Time</button>
+        </div>
+
+        <div class="action-group">
+          <button id="btnToggleMonitor" class="btn-glass active-toggle">Monitoring: Active</button>
+          <button id="btnReset" class="btn-glass">Clear</button>
+        </div>
+      </div>
+
+      <!-- 4 KPI Cards -->
+      <section class="kpi-grid">
+        <div class="glass-card">
+          <div class="kpi-label">
+            <span>Skips in Period</span>
+            <span id="kpiRangeBadge" class="kpi-badge">15m</span>
+          </div>
+          <div id="kpiTotalSkips" class="kpi-value mono">0</div>
+          <div class="kpi-sub">
+            <span id="kpiRatePerHour" class="mono">0.0 / hr</span>
+            <span id="kpiStoredTotal" class="mono">0 stored</span>
+          </div>
+          <div class="mini-ratio-bar">
+            <div id="ratioDropout" class="mini-ratio-dropout" style="width: 50%"></div>
+            <div id="ratioSpinout" class="mini-ratio-spinout" style="width: 50%"></div>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <div class="kpi-label">
+            <span>Polling Dropouts</span>
+            <span id="kpiDropoutThresh" class="kpi-badge mono">&gt; 6.0 ms</span>
+          </div>
+          <div id="kpiDropouts" class="kpi-value mono">0</div>
+          <div class="kpi-sub">
+            <span>Peak gap</span>
+            <span id="kpiMaxDropout" class="mono">0.0 ms</span>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <div class="kpi-label">
+            <span>Sensor Spinouts</span>
+            <span id="kpiSpinoutThresh" class="kpi-badge mono">&ge; 1500 c/ms</span>
+          </div>
+          <div id="kpiSpinouts" class="kpi-value mono">0</div>
+          <div class="kpi-sub">
+            <span>Peak velocity</span>
+            <span id="kpiMaxSpinout" class="mono">0 c/ms</span>
+          </div>
+        </div>
+
+        <div class="glass-card">
+          <div class="kpi-label">
+            <span>USB Raw Input Telemetry</span>
+            <span class="kpi-badge">HID Driver</span>
+          </div>
+          <div id="kpiHz" class="kpi-value mono">-- Hz</div>
+          <div class="kpi-sub">
+            <span id="kpiAvgDt" class="mono">Avg -- ms</span>
+            <span id="kpiPackets" class="mono">0 packets</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Middle Grid: Timeline Bar Chart + Sensitivity Sliders -->
+      <section class="mid-grid">
+        <!-- Timeline Card -->
+        <div class="glass-card">
+          <div class="card-header">
+            <div>
+              <div class="card-title">Skip Timeline</div>
+              <div class="card-desc">Distribution of polling dropouts &amp; sensor spinouts over time</div>
+            </div>
+            <div class="legend">
+              <span class="legend-item">
+                <span class="legend-swatch" style="background: #e4e4e7"></span>
+                Dropout
+              </span>
+              <span class="legend-item">
+                <span class="legend-swatch" style="background: #71717a"></span>
+                Spinout
+              </span>
+            </div>
+          </div>
+
+          <div class="chart-wrap">
+            <div id="chartTooltip" class="chart-tooltip"></div>
+            <div class="chart-gridlines">
+              <div class="chart-gridline"><span id="yMaxLabel">1</span></div>
+              <div class="chart-gridline"><span id="yMidLabel"></span></div>
+              <div class="chart-gridline"><span>0</span></div>
+            </div>
+            <div id="chartBars" class="chart-bars"></div>
+            <div id="chartLabels" class="bar-labels"></div>
+          </div>
+        </div>
+
+        <!-- Threshold Sliders Card -->
+        <div class="glass-card">
+          <div class="card-header" style="margin-bottom: 10px">
+            <div>
+              <div class="card-title">Thresholds &amp; Polling Calibration</div>
+              <div class="card-desc">Live tuning without recompiling (125 Hz – 4000 Hz)</div>
+            </div>
+          </div>
+
+          <div class="preset-row">
+            <button class="preset-chip" data-preset="15">125 Hz (15 ms)</button>
+            <button class="preset-chip" data-preset="8">500 Hz (8 ms)</button>
+            <button class="preset-chip active" data-preset="6">1000 Hz (6 ms)</button>
+            <button class="preset-chip" data-preset="3">2000+ Hz (3 ms)</button>
+          </div>
+
+          <div class="slider-group">
+            <div class="slider-row">
+              <div class="slider-head">
+                <span class="slider-label">Dropout Threshold</span>
+                <span id="valDropoutMs" class="slider-val">6.0 ms</span>
+              </div>
+              <input id="sliderDropout" type="range" min="1.5" max="100" step="0.5" value="6" />
+              <div class="slider-hint">Flags sensor gaps exceeding this interval during active movement</div>
+            </div>
+
+            <div class="slider-row">
+              <div class="slider-head">
+                <span class="slider-label">Spinout Threshold (Velocity)</span>
+                <span id="valSpinoutPx" class="slider-val">1500 c/ms</span>
+              </div>
+              <input id="sliderSpinout" type="range" min="300" max="5000" step="50" value="1500" />
+              <div class="slider-hint">Anomalous sensor velocity √(dx² + dy²) / ms (125 Hz &amp; 1000 Hz normalized)</div>
+            </div>
+
+            <div class="slider-row">
+              <div class="slider-head">
+                <span class="slider-label">Pause Cutoff</span>
+                <span id="valCutoffMs" class="slider-val">60 ms</span>
+              </div>
+              <input id="sliderCutoff" type="range" min="20" max="300" step="5" value="60" />
+              <div class="slider-hint">Gaps longer than this are treated as intentional hand pauses</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Event Log Card -->
+      <section class="glass-card events-card">
+        <div class="events-header">
+          <div>
+            <div class="card-title">Detected Skip Events</div>
+            <div class="card-desc">Captured directly from Windows Raw Input (WM_INPUT / RIDEV_INPUTSINK) — immune to 3D game cursor resets</div>
+          </div>
+
+          <div class="segmented" style="padding: 2px;">
+            <button class="seg-btn active" data-type="all">All</button>
+            <button class="seg-btn" data-type="dropout">Dropouts</button>
+            <button class="seg-btn" data-type="spinout">Spinouts</button>
+          </div>
+        </div>
+
+        <div id="eventList" class="event-list">
+          <div class="empty-state">No skip events detected in the selected time range.</div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    const state = {
+      range: "15m",
+      typeFilter: "all",
+      hiddenToTray: false,
+      draggingSlider: false,
+      monitoringEnabled: true,
+      pollTimer: null,
+      saveTimer: null,
+      requestSeq: 0,
+      lastData: null
+    };
+
+    function postIpc(msg) {
+      if (window.ipc && typeof window.ipc.postMessage === "function") {
+        window.ipc.postMessage(msg);
+      }
+    }
+
+    // Window drag & resize wiring
+    document.querySelectorAll("[data-drag-region]").forEach((el) => {
+      el.addEventListener("mousedown", (e) => {
+        if (e.button !== 0) return;
+        if (e.detail === 2) {
+          postIpc("toggle_maximize");
+        } else {
+          postIpc("drag_window");
+        }
+      });
+    });
+
+    document.querySelectorAll("[data-resize]").forEach((el) => {
+      el.addEventListener("mousedown", (e) => {
+        if (e.button === 0) {
+          postIpc("resize:" + el.dataset.resize);
+        }
+      });
+    });
+
+    document.getElementById("btnMin").addEventListener("click", () => postIpc("minimize_window"));
+    document.getElementById("btnMax").addEventListener("click", () => postIpc("toggle_maximize"));
+    document.getElementById("btnHideTray").addEventListener("click", () => postIpc("hide_to_tray"));
+
+    // Time range filter tabs
+    document.querySelectorAll("[data-range]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-range]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.range = btn.dataset.range;
+        fetchDashboard();
+      });
+    });
+
+    // Event type filter tabs
+    document.querySelectorAll("[data-type]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll("[data-type]").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        state.typeFilter = btn.dataset.type;
+        fetchDashboard();
+      });
+    });
+
+    // Action buttons
+    document.getElementById("btnToggleMonitor").addEventListener("click", async () => {
+      state.monitoringEnabled = !state.monitoringEnabled;
+      await saveSettings({ monitoring_enabled: state.monitoringEnabled });
+      fetchDashboard();
+    });
+
+    document.getElementById("btnReset").addEventListener("click", async () => {
+      await fetch("/api/reset", { method: "POST" });
+      fetchDashboard();
+    });
+
+    // Sliders & presets
+    const sliderDropout = document.getElementById("sliderDropout");
+    const sliderSpinout = document.getElementById("sliderSpinout");
+    const sliderCutoff = document.getElementById("sliderCutoff");
+
+    function updateSliderReadouts(source) {
+      let d = parseFloat(sliderDropout.value);
+      const s = parseFloat(sliderSpinout.value);
+      let c = parseFloat(sliderCutoff.value);
+
+      // Keep active_pause_cutoff_ms >= dropout_threshold_ms + 10 in sync with backend invariant
+      if (c < d + 10) {
+        if (source === sliderCutoff) {
+          d = Math.max(1.5, c - 10);
+          sliderDropout.value = d;
+          if (c < d + 10) {
+            c = Math.min(300, d + 10);
+            sliderCutoff.value = c;
+          }
+        } else {
+          c = Math.min(300, d + 10);
+          sliderCutoff.value = c;
+          if (d > c - 10) {
+            d = Math.max(1.5, c - 10);
+            sliderDropout.value = d;
+          }
+        }
+      }
+
+      document.getElementById("valDropoutMs").textContent = d.toFixed(1) + " ms";
+      document.getElementById("valSpinoutPx").textContent = Math.round(s) + " c/ms";
+      document.getElementById("valCutoffMs").textContent = Math.round(c) + " ms";
+
+      document.querySelectorAll(".preset-chip").forEach((chip) => {
+        const pv = parseFloat(chip.dataset.preset);
+        chip.classList.toggle("active", Math.abs(pv - d) < 0.05);
+      });
+    }
+
+    function scheduleSettingsSave(source) {
+      updateSliderReadouts(source);
+      clearTimeout(state.saveTimer);
+      state.saveTimer = setTimeout(async () => {
+        await saveSettings({
+          dropout_threshold_ms: parseFloat(sliderDropout.value),
+          spinout_threshold_px: parseFloat(sliderSpinout.value),
+          active_pause_cutoff_ms: parseFloat(sliderCutoff.value)
+        });
+        fetchDashboard();
+      }, 120);
+    }
+
+    [sliderDropout, sliderSpinout, sliderCutoff].forEach((slider) => {
+      slider.addEventListener("pointerdown", () => { state.draggingSlider = true; });
+      slider.addEventListener("blur", () => { state.draggingSlider = false; });
+      slider.addEventListener("input", () => scheduleSettingsSave(slider));
+      slider.addEventListener("change", () => {
+        state.draggingSlider = false;
+        scheduleSettingsSave(slider);
+      });
+    });
+
+    window.addEventListener("pointerup", () => { state.draggingSlider = false; });
+    window.addEventListener("pointercancel", () => { state.draggingSlider = false; });
+
+    document.querySelectorAll(".preset-chip").forEach((chip) => {
+      chip.addEventListener("click", () => {
+        sliderDropout.value = chip.dataset.preset;
+        scheduleSettingsSave(sliderDropout);
+      });
+    });
+
+    async function saveSettings(patch) {
+      try {
+        await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch)
+        });
+      } catch (_) {}
+    }
+
+    function formatTime(epochMs) {
+      const d = new Date(epochMs);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      const ms = String(d.getMilliseconds()).padStart(3, "0");
+      return `${hh}:${mm}:${ss}.${ms}`;
+    }
+
+    function renderDashboard(data) {
+      state.lastData = data;
+      state.monitoringEnabled = !!data.config.monitoring_enabled;
+
+      // Top redesigned input status pill
+      const liveBadge = document.getElementById("liveBadge");
+      const liveText = document.getElementById("liveStatusText");
+      if (!data.config.monitoring_enabled) {
+        liveBadge.classList.add("is-paused");
+        liveText.textContent = "PAUSED";
+      } else if (data.live.raw_input_active) {
+        liveBadge.classList.remove("is-paused");
+        liveText.textContent = "RAW INPUT";
+      } else {
+        liveBadge.classList.add("is-paused");
+        liveText.textContent = "WAITING";
+      }
+
+      const hzText = data.live.estimated_hz > 0 ? `${data.live.estimated_hz} Hz` : "-- Hz";
+      document.getElementById("liveHzPill").textContent = hzText;
+      document.getElementById("liveDeltaPill").textContent = `\u0394 ${data.live.last_dx}, ${data.live.last_dy}`;
+
+      // Monitor toggle button
+      const toggleBtn = document.getElementById("btnToggleMonitor");
+      toggleBtn.textContent = data.config.monitoring_enabled ? "Monitoring: Active" : "Monitoring: Paused";
+      toggleBtn.classList.toggle("active-toggle", data.config.monitoring_enabled);
+
+      // KPIs
+      document.getElementById("kpiRangeBadge").textContent = data.range;
+      document.getElementById("kpiTotalSkips").textContent = data.total_skips.toLocaleString("en-US");
+      document.getElementById("kpiRatePerHour").textContent = `${data.skips_per_hour.toFixed(1)} / hr`;
+      document.getElementById("kpiStoredTotal").textContent = `${data.total_stored_events} stored`;
+
+      const ratioDrop = data.total_skips > 0 ? (data.dropout_count / data.total_skips) * 100 : 50;
+      const ratioSpin = data.total_skips > 0 ? (data.spinout_count / data.total_skips) * 100 : 50;
+      document.getElementById("ratioDropout").style.width = `${ratioDrop}%`;
+      document.getElementById("ratioSpinout").style.width = `${ratioSpin}%`;
+
+      document.getElementById("kpiDropouts").textContent = data.dropout_count.toLocaleString("en-US");
+      document.getElementById("kpiDropoutThresh").textContent = `> ${data.config.dropout_threshold_ms.toFixed(1)} ms`;
+      document.getElementById("kpiMaxDropout").textContent = `${data.max_dropout_ms.toFixed(1)} ms`;
+
+      document.getElementById("kpiSpinouts").textContent = data.spinout_count.toLocaleString("en-US");
+      document.getElementById("kpiSpinoutThresh").textContent = `≥ ${Math.round(data.config.spinout_threshold_px)} c/ms`;
+      document.getElementById("kpiMaxSpinout").textContent = `${Math.round(data.max_spinout_px)} c/ms`;
+
+      document.getElementById("kpiHz").textContent = hzText;
+      document.getElementById("kpiAvgDt").textContent =
+        data.live.avg_dt_ms > 0 ? `Avg ${data.live.avg_dt_ms.toFixed(2)} ms` : "Avg -- ms";
+      document.getElementById("kpiPackets").textContent = `${data.live.total_packets.toLocaleString("en-US")} packets`;
+
+      // Sync sliders if not actively dragging
+      if (!state.draggingSlider) {
+        sliderDropout.value = data.config.dropout_threshold_ms;
+        sliderSpinout.value = data.config.spinout_threshold_px;
+        sliderCutoff.value = data.config.active_pause_cutoff_ms;
+        updateSliderReadouts();
+      }
+
+      renderTimeline(data.timeline);
+      renderEventList(data.events);
+    }
+
+    function renderTimeline(buckets) {
+      const barsEl = document.getElementById("chartBars");
+      const labelsEl = document.getElementById("chartLabels");
+      const tooltipEl = document.getElementById("chartTooltip");
+
+      const maxTotal = Math.max(1, ...buckets.map((b) => b.total));
+      document.getElementById("yMaxLabel").textContent = maxTotal;
+      document.getElementById("yMidLabel").textContent = maxTotal > 1 ? Math.ceil(maxTotal / 2) : "";
+
+      const step = buckets.length > 16 ? 3 : buckets.length > 12 ? 2 : 1;
+
+      barsEl.innerHTML = "";
+      labelsEl.innerHTML = "";
+
+      buckets.forEach((b, idx) => {
+        const col = document.createElement("div");
+        col.className = "bar-col";
+
+        const track = document.createElement("div");
+        track.className = "bar-track";
+
+        const totalPct = b.total > 0 ? Math.min(100, Math.max((b.total / maxTotal) * 100, 4)) : 0;
+        const dropPct = b.total > 0 ? totalPct * (b.dropouts / b.total) : 0;
+        const spinPct = b.total > 0 ? totalPct * (b.spinouts / b.total) : 0;
+
+        if (b.dropouts > 0) {
+          const dropSeg = document.createElement("div");
+          dropSeg.className = "bar-seg-dropout";
+          dropSeg.style.height = `${dropPct}%`;
+          track.appendChild(dropSeg);
+        }
+
+        if (b.spinouts > 0) {
+          const spinSeg = document.createElement("div");
+          spinSeg.className = "bar-seg-spinout";
+          spinSeg.style.height = `${spinPct}%`;
+          track.appendChild(spinSeg);
+        }
+
+        col.appendChild(track);
+
+        col.addEventListener("mouseenter", () => {
+          const startStr = formatTime(b.start_ms).slice(0, 5);
+          const endStr = formatTime(b.end_ms).slice(0, 5);
+          tooltipEl.innerHTML =
+            `<div class="mono" style="color:#a1a1aa;margin-bottom:2px;">${startStr} – ${endStr}</div>` +
+            `<div><strong>${b.total}</strong> Skips (${b.dropouts} Dropout, ${b.spinouts} Spinout)</div>`;
+          const left = col.offsetLeft + col.offsetWidth / 2;
+          tooltipEl.style.left = `${Math.min(Math.max(left, 90), barsEl.clientWidth - 90)}px`;
+          tooltipEl.style.top = `0px`;
+          tooltipEl.style.opacity = "1";
+        });
+
+        col.addEventListener("mouseleave", () => {
+          tooltipEl.style.opacity = "0";
+        });
+
+        barsEl.appendChild(col);
+
+        const lbl = document.createElement("div");
+        lbl.className = "bar-label";
+        lbl.textContent = idx % step === 0 || idx === buckets.length - 1 ? b.label : "";
+        labelsEl.appendChild(lbl);
+      });
+    }
+
+    function renderEventList(events) {
+      const listEl = document.getElementById("eventList");
+      const filtered = events.filter((ev) => {
+        if (state.typeFilter === "all") return true;
+        return ev.kind === state.typeFilter;
+      });
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `<div class="empty-state">No skip events detected in the selected time range.</div>`;
+        return;
+      }
+
+      listEl.innerHTML = filtered
+        .map((ev) => {
+          const isDropout = ev.kind === "dropout";
+          const badgeClass = isDropout ? "type-dropout" : "type-spinout";
+          const badgeLabel = isDropout ? "Polling Dropout" : "Sensor Spinout";
+          const metricText = isDropout
+            ? `Gap: <strong class="mono">${ev.dt_ms.toFixed(1)} ms</strong> <span style="color:#71717a">(thresh ${ev.threshold_used.toFixed(1)} ms)</span>`
+            : `Vel: <strong class="mono">${Math.round(ev.delta_px)} c/ms</strong> <span style="color:#71717a">(thresh ${Math.round(ev.threshold_used)} c/ms)</span>`;
+          const hzStr = ev.estimated_hz > 0 ? `${ev.estimated_hz} Hz` : "-- Hz";
+
+          return `
+            <div class="event-row">
+              <span class="mono" style="color:#a1a1aa">${formatTime(ev.timestamp_ms)}</span>
+              <span class="type-badge ${badgeClass}">${badgeLabel}</span>
+              <span style="color:#e4e4e7">${metricText}</span>
+              <span class="mono" style="color:#a1a1aa; text-align:right">dx:${ev.dx} dy:${ev.dy}</span>
+              <span class="mono" style="color:#71717a; text-align:right">${hzStr}</span>
+            </div>
+          `;
+        })
+        .join("");
+    }
+
+    async function fetchDashboard() {
+      if (state.hiddenToTray || document.hidden) return;
+      const reqId = ++state.requestSeq;
+      try {
+        const res = await fetch(
+          `/api/dashboard?range=${encodeURIComponent(state.range)}&kind=${encodeURIComponent(state.typeFilter)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        if (reqId !== state.requestSeq || data.range !== state.range) return;
+        renderDashboard(data);
+      } catch (_) {}
+    }
+
+    function startPolling() {
+      stopPolling();
+      fetchDashboard();
+      state.pollTimer = setInterval(fetchDashboard, 650);
+    }
+
+    function stopPolling() {
+      if (state.pollTimer) {
+        clearInterval(state.pollTimer);
+        state.pollTimer = null;
+      }
+    }
+
+    // Lifecycle hooks invoked from Rust when hiding to or restoring from the Windows System Tray
+    window.__onWindowHidden = () => {
+      state.hiddenToTray = true;
+      stopPolling();
+    };
+
+    window.__onWindowRestored = () => {
+      state.hiddenToTray = false;
+      startPolling();
+    };
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopPolling();
+      } else if (!state.hiddenToTray) {
+        startPolling();
+      }
+    });
+
+    startPolling();
+  </script>
+</body>
+</html>
