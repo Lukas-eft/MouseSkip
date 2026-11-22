@@ -1,9 +1,6 @@
 <div align="center">
 
-<img src="assets/mouseskip-banner.png" alt="MouseSkip Banner" width="100%" />
-
-<br />
-<br />
+# MouseSkip
 
 [![Rust 2021](https://img.shields.io/badge/Rust-2021_Edition-EA580C?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Windows 10 / 11](https://img.shields.io/badge/Platform-Windows_10_%2F_11-0078D4?style=for-the-badge&logo=windows11&logoColor=white)](https://www.microsoft.com/windows)
